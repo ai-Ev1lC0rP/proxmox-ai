@@ -1,0 +1,36 @@
+# Proxmox Backup Job for VM {{ vm_id }}
+# Created by Proxmox AI Ansible Integration
+# {{ ansible_managed }}
+
+{% if schedule_hour is defined %}
+HOUR={{ schedule_hour }}
+{% else %}
+HOUR=2
+{% endif %}
+
+{% if schedule_minute is defined %}
+MINUTE={{ schedule_minute }}
+{% else %}
+MINUTE=0
+{% endif %}
+
+{% if schedule_day is defined %}
+DAY={{ schedule_day }}
+{% else %}
+DAY=*
+{% endif %}
+
+{% if schedule_month is defined %}
+MONTH={{ schedule_month }}
+{% else %}
+MONTH=*
+{% endif %}
+
+{% if schedule_weekday is defined %}
+WEEKDAY={{ schedule_weekday }}
+{% else %}
+WEEKDAY=0
+{% endif %}
+
+# Run backup task at specified time
+{{ schedule_minute | default('0') }} {{ schedule_hour | default('2') }} {{ schedule_day | default('*') }} {{ schedule_month | default('*') }} {{ schedule_weekday | default('0') }} root /usr/bin/pvesh create /nodes/{{ node }}/vzdump --vmid {{ vm_id }} --storage {{ storage | default('local') }} --mode {{ mode | default('snapshot') }} --compress {{ compress | default('zstd') }} --quiet 1 --mailto {{ admin_email | default('root@localhost') }}

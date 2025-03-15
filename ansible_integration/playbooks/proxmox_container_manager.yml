@@ -1,0 +1,117 @@
+---
+# Proxmox Container Management Playbook
+# This playbook provides tasks for creating, modifying, and managing LXC containers on Proxmox hosts
+
+- name: Proxmox Container Management
+  hosts: proxmox_hosts
+  gather_facts: true
+  become: true
+  vars:
+    ct_id: "{{ ct_id | default(omit) }}"
+    ct_hostname: "{{ ct_hostname | default('ansible-managed-container') }}"
+    ct_memory: "{{ ct_memory | default(1024) }}"
+    ct_swap: "{{ ct_swap | default(512) }}"
+    ct_cores: "{{ ct_cores | default(1) }}"
+    ct_disk: "{{ ct_disk | default('8G') }}"
+    ct_storage: "{{ ct_storage | default('local-lvm') }}"
+    ct_net_bridge: "{{ ct_net_bridge | default('vmbr0') }}"
+    ct_ostemplate: "{{ ct_ostemplate | default('local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst') }}"
+    ct_password: "{{ ct_password | default(omit) }}"
+    ct_ssh_public_keys: "{{ ct_ssh_public_keys | default(omit) }}"
+    ct_unprivileged: "{{ ct_unprivileged | default(true) }}"
+    ct_state: "{{ ct_state | default('present') }}"
+    ct_node: "{{ node_name }}"
+    ct_ip_address: "{{ ct_ip_address | default('dhcp') }}"
+    
+  tasks:
+    - name: Validate inputs
+      assert:
+        that:
+          - ct_state in ['present', 'absent', 'started', 'stopped', 'restarted']
+        fail_msg: "Invalid container state specified. Must be one of: present, absent, started, stopped, restarted"
+      
+    - name: Get next available Container ID if not specified
+      block:
+        - name: Get next VM ID from Proxmox
+          shell: "pvesh get /cluster/nextid"
+          register: nextid_result
+          when: ct_id is not defined or ct_id == "AUTO"
+          
+        - name: Set Container ID from result
+          set_fact:
+            ct_id: "{{ nextid_result.stdout | trim }}"
+          when: ct_id is not defined or ct_id == "AUTO"
+      when: ct_state == 'present'
+      
+    - name: Create LXC container
+      community.general.proxmox:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ ct_node }}"
+        vmid: "{{ ct_id }}"
+        hostname: "{{ ct_hostname }}"
+        ostemplate: "{{ ct_ostemplate }}"
+        password: "{{ ct_password }}"
+        pubkey: "{{ ct_ssh_public_keys }}"
+        memory: "{{ ct_memory }}"
+        swap: "{{ ct_swap }}"
+        cores: "{{ ct_cores }}"
+        disk: "{{ ct_disk }}"
+        storage: "{{ ct_storage }}"
+        unprivileged: "{{ ct_unprivileged | bool }}"
+        netif: '{"net0":"name=eth0,bridge={{ ct_net_bridge }},ip={{ ct_ip_address }}"}'
+        onboot: yes
+        state: present
+      when: ct_state == 'present'
+      register: ct_create_result
+      
+    - name: Start container
+      community.general.proxmox:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ ct_node }}"
+        vmid: "{{ ct_id }}"
+        state: started
+      when: ct_state == 'started'
+      
+    - name: Stop container
+      community.general.proxmox:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ ct_node }}"
+        vmid: "{{ ct_id }}"
+        state: stopped
+      when: ct_state == 'stopped'
+      
+    - name: Restart container
+      community.general.proxmox:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ ct_node }}"
+        vmid: "{{ ct_id }}"
+        state: restarted
+      when: ct_state == 'restarted'
+      
+    - name: Delete container
+      community.general.proxmox:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ ct_node }}"
+        vmid: "{{ ct_id }}"
+        state: absent
+      when: ct_state == 'absent'

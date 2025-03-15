@@ -1,0 +1,134 @@
+---
+# Proxmox VM Management Playbook
+# This playbook provides tasks for creating, modifying, and managing VMs on Proxmox hosts
+
+- name: Proxmox VM Management
+  hosts: proxmox_hosts
+  gather_facts: true
+  become: true
+  vars:
+    vm_id: "{{ vm_id | default(omit) }}"
+    vm_name: "{{ vm_name | default('ansible-managed-vm') }}"
+    vm_memory: "{{ vm_memory | default(2048) }}"
+    vm_cores: "{{ vm_cores | default(2) }}"
+    vm_disk_size: "{{ vm_disk_size | default('32G') }}"
+    vm_storage: "{{ vm_storage | default('local-lvm') }}"
+    vm_net_bridge: "{{ vm_net_bridge | default('vmbr0') }}"
+    vm_iso: "{{ vm_iso | default(omit) }}"
+    vm_template: "{{ vm_template | default(omit) }}"
+    vm_state: "{{ vm_state | default('present') }}"
+    vm_node: "{{ node_name }}"
+    
+  tasks:
+    - name: Validate inputs
+      assert:
+        that:
+          - vm_state in ['present', 'absent', 'started', 'stopped', 'restarted']
+        fail_msg: "Invalid VM state specified. Must be one of: present, absent, started, stopped, restarted"
+      
+    - name: Get next available VM ID if not specified
+      block:
+        - name: Get next VM ID from Proxmox
+          shell: "pvesh get /cluster/nextid"
+          register: nextid_result
+          when: vm_id is not defined or vm_id == "AUTO"
+          
+        - name: Set VM ID from result
+          set_fact:
+            vm_id: "{{ nextid_result.stdout | trim }}"
+          when: vm_id is not defined or vm_id == "AUTO"
+      when: vm_state == 'present'
+      
+    - name: Create VM from template
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ vm_node }}"
+        vmid: "{{ vm_id }}"
+        name: "{{ vm_name }}"
+        clone: "{{ vm_template }}"
+        full: yes
+        timeout: 300
+        state: present
+      when: 
+        - vm_state == 'present' 
+        - vm_template is defined
+      register: vm_clone_result
+      
+    - name: Create VM from ISO
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ vm_node }}"
+        vmid: "{{ vm_id }}"
+        name: "{{ vm_name }}"
+        memory: "{{ vm_memory }}"
+        cores: "{{ vm_cores }}"
+        net:
+          net0: "model=virtio,bridge={{ vm_net_bridge }}"
+        virtio:
+          virtio0: "{{ vm_storage }}:{{ vm_disk_size }}"
+        ide:
+          ide0: "{{ vm_iso }},media=cdrom"
+        ostype: l26
+        onboot: yes
+        state: present
+      when: 
+        - vm_state == 'present' 
+        - vm_template is not defined
+        - vm_iso is defined
+      register: vm_create_result
+      
+    - name: Start VM
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ vm_node }}"
+        vmid: "{{ vm_id }}"
+        state: started
+      when: vm_state == 'started'
+      
+    - name: Stop VM
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ vm_node }}"
+        vmid: "{{ vm_id }}"
+        state: stopped
+      when: vm_state == 'stopped'
+      
+    - name: Restart VM
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ vm_node }}"
+        vmid: "{{ vm_id }}"
+        state: restarted
+      when: vm_state == 'restarted'
+      
+    - name: Delete VM
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_verify_ssl }}"
+        node: "{{ vm_node }}"
+        vmid: "{{ vm_id }}"
+        state: absent
+      when: vm_state == 'absent'

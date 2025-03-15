@@ -1,0 +1,127 @@
+---
+# Proxmox Backup Management Playbook
+# This playbook provides tasks for creating, managing, and restoring backups on Proxmox hosts
+
+- name: Proxmox Backup Management
+  hosts: proxmox_hosts
+  gather_facts: true
+  become: true
+  vars:
+    operation: "{{ operation | default('list') }}"
+    backup_id: "{{ backup_id | default(omit) }}"
+    vm_id: "{{ vm_id | default(omit) }}"
+    storage: "{{ storage | default('local') }}"
+    mode: "{{ mode | default('snapshot') }}"
+    node: "{{ node_name }}"
+    compress: "{{ compress | default('zstd') }}"
+    
+  tasks:
+    - name: Validate inputs
+      assert:
+        that:
+          - operation in ['list', 'create', 'restore', 'delete', 'schedule']
+        fail_msg: "Invalid operation specified. Must be one of: list, create, restore, delete, schedule"
+    
+    - name: List all backups
+      shell: "pvesh get /nodes/{{ node }}/storage/{{ storage }}/content --content backup"
+      register: backup_list
+      when: operation == 'list'
+      
+    - name: Display backup list
+      debug:
+        var: backup_list.stdout_lines
+      when: operation == 'list'
+      
+    - name: Create backup for VM
+      block:
+        - name: Validate VM ID
+          assert:
+            that:
+              - vm_id is defined
+            fail_msg: "VM ID must be provided for backup creation"
+          
+        - name: Create backup
+          shell: >
+            pvesh create /nodes/{{ node }}/vzdump
+            --vmid {{ vm_id }}
+            --storage {{ storage }}
+            --mode {{ mode }}
+            --compress {{ compress }}
+          register: backup_result
+          
+        - name: Display backup result
+          debug:
+            var: backup_result.stdout_lines
+      when: operation == 'create'
+      
+    - name: Restore backup
+      block:
+        - name: Validate backup ID and target VM ID
+          assert:
+            that:
+              - backup_id is defined
+              - vm_id is defined
+            fail_msg: "Backup ID and VM ID must be provided for restore operation"
+          
+        - name: Get backup file path
+          shell: >
+            pvesh get /nodes/{{ node }}/storage/{{ storage }}/content
+            --content backup | grep "{{ backup_id }}" | awk '{print $2}'
+          register: backup_path
+          
+        - name: Restore from backup
+          shell: >
+            pvesh create /nodes/{{ node }}/qemu/{{ vm_id }}/vzdump-restore
+            --archive {{ backup_path.stdout | trim }}
+          register: restore_result
+          
+        - name: Display restore result
+          debug:
+            var: restore_result.stdout_lines
+      when: operation == 'restore'
+      
+    - name: Delete backup
+      block:
+        - name: Validate backup ID
+          assert:
+            that:
+              - backup_id is defined
+            fail_msg: "Backup ID must be provided for delete operation"
+          
+        - name: Get backup volume ID
+          shell: >
+            pvesh get /nodes/{{ node }}/storage/{{ storage }}/content
+            --content backup | grep "{{ backup_id }}" | awk '{print $1}'
+          register: volid
+          
+        - name: Delete backup
+          shell: >
+            pvesh delete /nodes/{{ node }}/storage/{{ storage }}/content/{{ volid.stdout | trim }}
+          register: delete_result
+          
+        - name: Display delete result
+          debug:
+            var: delete_result.stdout_lines
+      when: operation == 'delete'
+      
+    - name: Schedule regular backups
+      block:
+        - name: Validate VM ID
+          assert:
+            that:
+              - vm_id is defined
+            fail_msg: "VM ID must be provided for scheduling backups"
+          
+        - name: Create backup schedule file
+          template:
+            src: templates/backup_job.j2
+            dest: "/etc/cron.d/proxmox-backup-{{ vm_id }}"
+            owner: root
+            group: root
+            mode: '0644'
+          register: schedule_result
+          
+        - name: Display schedule result
+          debug:
+            msg: "Backup schedule created for VM {{ vm_id }}"
+      when: operation == 'schedule'

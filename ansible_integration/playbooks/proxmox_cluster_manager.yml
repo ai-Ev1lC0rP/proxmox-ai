@@ -1,0 +1,116 @@
+---
+# Proxmox Cluster Management Playbook
+# This playbook provides tasks for managing Proxmox clusters, nodes, and shared resources
+
+- name: Proxmox Cluster Management
+  hosts: proxmox_hosts
+  gather_facts: true
+  become: true
+  vars:
+    operation: "{{ operation | default('status') }}"
+    target_node: "{{ target_node | default(node_name) }}"
+    cluster_name: "{{ cluster_name | default('proxmox-cluster') }}"
+    source_node: "{{ source_node | default(node_name) }}"
+    
+  tasks:
+    - name: Validate inputs
+      assert:
+        that:
+          - operation in ['status', 'create_cluster', 'join_cluster', 'leave_cluster', 'enable_ha']
+        fail_msg: "Invalid operation specified. Must be one of: status, create_cluster, join_cluster, leave_cluster, enable_ha"
+      
+    - name: Get cluster status
+      shell: "pvesh get /cluster/status"
+      register: cluster_status
+      when: operation == 'status'
+      
+    - name: Display cluster status
+      debug:
+        var: cluster_status.stdout_lines
+      when: operation == 'status'
+      
+    - name: Create new cluster
+      block:
+        - name: Check if already in a cluster
+          shell: "pvesh get /cluster/status -output-format json | grep -c 'type.*cluster'"
+          register: cluster_check
+          failed_when: false
+          
+        - name: Abort if already in a cluster
+          fail:
+            msg: "This node is already part of a cluster"
+          when: cluster_check.stdout | int > 0
+          
+        - name: Create new Proxmox cluster
+          shell: "pvecm create {{ cluster_name }}"
+          register: create_result
+          
+        - name: Display create result
+          debug:
+            var: create_result.stdout_lines
+      when: operation == 'create_cluster'
+      
+    - name: Join existing cluster
+      block:
+        - name: Check if already in a cluster
+          shell: "pvesh get /cluster/status -output-format json | grep -c 'type.*cluster'"
+          register: cluster_check
+          failed_when: false
+          
+        - name: Abort if already in a cluster
+          fail:
+            msg: "This node is already part of a cluster"
+          when: cluster_check.stdout | int > 0
+          
+        - name: Get join information from source node
+          shell: "ssh {{ source_node }} pvecm gentoken"
+          register: join_info
+          
+        - name: Join Proxmox cluster
+          shell: "pvecm add {{ source_node }} --force=1 --use_cwarn=0"
+          register: join_result
+          
+        - name: Display join result
+          debug:
+            var: join_result.stdout_lines
+      when: operation == 'join_cluster'
+      
+    - name: Leave cluster
+      block:
+        - name: Check if part of a cluster
+          shell: "pvesh get /cluster/status -output-format json | grep -c 'type.*cluster'"
+          register: cluster_check
+          failed_when: false
+          
+        - name: Abort if not in a cluster
+          fail:
+            msg: "This node is not part of a cluster"
+          when: cluster_check.stdout | int == 0
+          
+        - name: Leave Proxmox cluster
+          shell: "pvecm remove {{ target_node }}"
+          register: leave_result
+          
+        - name: Display leave result
+          debug:
+            var: leave_result.stdout_lines
+      when: operation == 'leave_cluster'
+      
+    - name: Enable HA services
+      block:
+        - name: Check if HA is already configured
+          shell: "pvesh get /cluster/ha/resources -output-format json"
+          register: ha_check
+          failed_when: false
+          
+        - name: Enable HA for Proxmox cluster
+          shell: "pvesh create /cluster/ha/resources -sid {{ item.sid }} -type {{ item.type }} -comment 'Managed by Ansible'"
+          loop: "{{ ha_resources }}"
+          register: ha_result
+          when: ha_resources is defined
+          
+        - name: Display HA configuration result
+          debug:
+            var: ha_result
+          when: ha_resources is defined
+      when: operation == 'enable_ha'

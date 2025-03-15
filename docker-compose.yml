@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  proxmox-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: proxmox-ai
+    volumes:
+      - .:/app
+      - ./ProxmoxVE:/app/ProxmoxVE
+    ports:
+      - "5000:5000"
+    environment:
+      - PROXMOX_HOST=${PROXMOX_HOST:-localhost}
+      - PROXMOX_PORT=${PROXMOX_PORT:-8006}
+      - PROXMOX_USER=${PROXMOX_USER:-root@pam}
+      - PROXMOX_TOKEN_ID=${PROXMOX_TOKEN_ID}
+      - PROXMOX_SECRET=${PROXMOX_SECRET}
+      - PROXMOX_VERIFY_SSL=${PROXMOX_VERIFY_SSL:-false}
+      - OLLAMA_BASE_URL=http://ollama:11434/v1
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:latest}
+      - PROXMOX_DB_URL=postgresql://postgres:postgres@postgres:5432/proxmox_ai
+      - PROXMOX_SCRIPTS_PATH=/app/ProxmoxVE
+    depends_on:
+      - ollama
+      - postgres
+    restart: unless-stopped
+    networks:
+      - proxmox_ai_network
+## Uncomment the below if you do not have ollama installed
+
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: proxmox-ai-ollama
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   ports:
+  #     - "11434:11434"
+  #   restart: unless-stopped
+  #   networks:
+  #     - proxmox_ai_network
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: proxmox-ai-postgres
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=proxmox_ai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/setup.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - proxmox_ai_network
+
+volumes:
+  postgres_data:
+  # ollama_data:
+
+networks:
+  proxmox_ai_network:
+    driver: bridge

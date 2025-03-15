@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+.env
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Databases
+*.db
+*.sqlite3
+
+# Runtime data
+*.pid
+*.seed
+*.pid.lock
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Ansible
+ansible_integration/inventory/secrets.yml
+
+# Environment variables
+.env
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
