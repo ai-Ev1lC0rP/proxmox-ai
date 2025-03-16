@@ -10,7 +10,7 @@ services:
       - .:/app
       - ./ProxmoxVE:/app/ProxmoxVE
     ports:
-      - "5000:5000"
+      - "5021:5000"
     environment:
       - PROXMOX_HOST=${PROXMOX_HOST:-localhost}
       - PROXMOX_PORT=${PROXMOX_PORT:-8006}
