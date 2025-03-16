@@ -23,7 +23,7 @@ services:
       - PROXMOX_DB_URL=postgresql://postgres:postgres@postgres:5432/proxmox_ai
       - PROXMOX_SCRIPTS_PATH=/app/ProxmoxVE
     depends_on:
-      - ollama
+      #- ollama
       - postgres
     restart: unless-stopped
     networks:
