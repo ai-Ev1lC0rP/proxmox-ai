@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   proxmox-ai:
     build:
@@ -8,9 +6,10 @@ services:
     container_name: proxmox-ai
     volumes:
       - .:/app
-      - ./ProxmoxVE:/app/ProxmoxVE
     ports:
-      - "5021:5000"
+      - "5000:5000"  # API port
+      - "8000:8000"  # Chainlit UI port
+      - "8501:8501"  # Streamlit UI port
     environment:
       - PROXMOX_HOST=${PROXMOX_HOST:-localhost}
       - PROXMOX_PORT=${PROXMOX_PORT:-8006}
@@ -21,25 +20,41 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434/v1
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:latest}
       - PROXMOX_DB_URL=postgresql://postgres:postgres@postgres:5432/proxmox_ai
-      - PROXMOX_SCRIPTS_PATH=/app/ProxmoxVE
+      - PROXMOX_SCRIPTS_PATH=/app/scripts
     depends_on:
-      #- ollama
-      - postgres
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+    # Use our main script to start all services
+    command: python main.py api --port 5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - proxmox_ai_network
-## Uncomment the below if you do not have ollama installed
 
-  # ollama:
-  #   image: ollama/ollama:latest
-  #   container_name: proxmox-ai-ollama
-  #   volumes:
-  #     - ollama_data:/root/.ollama
-  #   ports:
-  #     - "11434:11434"
-  #   restart: unless-stopped
-  #   networks:
-  #     - proxmox_ai_network
+  ollama:
+    image: ollama/ollama:latest
+    container_name: proxmox-ai-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    command: sh -c "ollama serve & sleep 10 && ollama pull ${OLLAMA_MODEL:-llama3.2:latest} && wait"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - proxmox_ai_network
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -54,12 +69,18 @@ services:
     ports:
       - "5432:5432"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - proxmox_ai_network
 
 volumes:
   postgres_data:
-  # ollama_data:
+  ollama_data:
 
 networks:
   proxmox_ai_network:

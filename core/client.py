@@ -16,16 +16,12 @@ class ProxmoxClient:
         
         Args:
             host: Proxmox host address
-            token_id: Token ID for authentication in format 'user@realm!token_name'
+            token_id: Token ID for authentication
             token_secret: Token secret for authentication
             username: Username for authentication (alternative to token auth)
             password: Password for authentication (alternative to token auth)
             verify_ssl: Whether to verify SSL certificates
             port: Port number (default: 8006)
-            
-        Note on token_id format:
-            The token_id should be in the format 'user@realm!token_name' 
-            (e.g., 'root@pam!mytoken' for a token named 'mytoken' for the root user)
         """
         # Clean up host to ensure we don't have protocol or port included
         host = self._clean_host(host)
@@ -53,37 +49,14 @@ class ProxmoxClient:
         try:
             # Token-based authentication
             if self.token_id and self.token_secret:
-                # Parse the token ID to extract user, realm, and token name
-                # Expected format: user@realm!token_name
-                match = re.match(r'^([^@]+)@([^!]+)!(.+)$', self.token_id)
-                
-                if match:
-                    user, realm, token_name = match.groups()
-                    return ProxmoxAPI(
-                        host=self.host,
-                        port=self.port,
-                        user=f"{user}@{realm}",
-                        token_name=token_name,
-                        token_value=self.token_secret,
-                        verify_ssl=self.verify_ssl
-                    )
-                else:
-                    # If not in the expected format, use as-is
-                    token_parts = self.token_id.split('!')
-                    if len(token_parts) < 2:
-                        print(f"Warning: Token ID '{self.token_id}' is not in the expected format 'user@realm!token_name'")
-                    
-                    user = token_parts[0]
-                    token_name = token_parts[1] if len(token_parts) > 1 else None
-                    
-                    return ProxmoxAPI(
-                        host=self.host,
-                        port=self.port,
-                        user=user,
-                        token_name=token_name,
-                        token_value=self.token_secret,
-                        verify_ssl=self.verify_ssl
-                    )
+                return ProxmoxAPI(
+                    host=self.host,
+                    port=self.port,
+                    user=self.token_id,
+                    token_name=self.token_id.split('!')[1] if '!' in self.token_id else None,
+                    token_value=self.token_secret,
+                    verify_ssl=self.verify_ssl
+                )
             # Username/password authentication
             elif self.username and self.password:
                 return ProxmoxAPI(
@@ -96,15 +69,7 @@ class ProxmoxClient:
             else:
                 raise ValueError("Either token authentication or username/password authentication must be provided")
         except Exception as e:
-            error_msg = str(e)
-            if "unauthorized" in error_msg.lower():
-                print(f"Authentication error: Invalid credentials or token. Please check your token_id/token_secret or username/password.")
-            elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
-                print(f"Connection error: Unable to connect to Proxmox host at {self.host}:{self.port}. Please verify the host is accessible.")
-            elif "certificate" in error_msg.lower() or "ssl" in error_msg.lower():
-                print(f"SSL error: SSL certificate verification failed. You may need to set verify_ssl=False if using a self-signed certificate.")
-            else:
-                print(f"Failed to connect to Proxmox API: {e}")
+            print(f"Failed to connect to Proxmox API: {e}")
             raise
     
     def get_node_status(self) -> Dict:
@@ -918,102 +883,3 @@ class ProxmoxClient:
         except Exception as e:
             print(f"Failed to add container firewall rule: {e}")
             return {"error": str(e)}
-
-    def test_connection(self) -> Dict[str, Any]:
-        """
-        Test the Proxmox API connection
-        
-        Returns:
-            dict: Connection test results with status, message, and possibly node count
-        """
-        try:
-            # Try to get list of nodes
-            start_time = time.time()
-            nodes = self.proxmox.nodes.get()
-            response_time = time.time() - start_time
-            
-            # Return successful test results
-            return {
-                "status": "success",
-                "message": f"Successfully connected to Proxmox API at {self.host}:{self.port}",
-                "node_count": len(nodes),
-                "nodes": [node["node"] for node in nodes],
-                "response_time_ms": round(response_time * 1000, 2),
-                "auth_type": "token" if self.token_id else "username/password"
-            }
-        except Exception as e:
-            error_msg = str(e)
-            message = "Connection error"
-            
-            if "unauthorized" in error_msg.lower():
-                message = "Authentication error: Invalid credentials or token"
-            elif "connection" in error_msg.lower() or "timeout" in error_msg.lower():
-                message = f"Connection error: Unable to connect to {self.host}:{self.port}"
-            elif "certificate" in error_msg.lower() or "ssl" in error_msg.lower():
-                message = "SSL error: Certificate verification failed"
-                
-            return {
-                "status": "error",
-                "message": message,
-                "error": str(e),
-                "auth_type": "token" if self.token_id else "username/password"
-            }
-
-    def reconnect(self, host: str = None, token_id: str = None, token_secret: str = None,
-                username: str = None, password: str = None, 
-                verify_ssl: bool = None, port: int = None) -> bool:
-        """
-        Update connection settings and reconnect to the Proxmox API
-        
-        Args:
-            host: New Proxmox host address (if None, use existing)
-            token_id: New token ID for authentication (if None, use existing)
-            token_secret: New token secret for authentication (if None, use existing)
-            username: New username for authentication (if None, use existing)
-            password: New password for authentication (if None, use existing)
-            verify_ssl: New setting for SSL verification (if None, use existing)
-            port: New port number (if None, use existing)
-            
-        Returns:
-            bool: True if reconnection was successful, False otherwise
-        """
-        # Update settings if provided
-        if host is not None:
-            self.host = self._clean_host(host)
-        
-        if token_id is not None:
-            self.token_id = token_id
-            # Clear username/password if switching to token auth
-            if self.username is not None or self.password is not None:
-                self.username = None
-                self.password = None
-                
-        if token_secret is not None:
-            self.token_secret = token_secret
-            
-        if username is not None:
-            self.username = username
-            # Clear token if switching to username/password auth
-            if self.token_id is not None or self.token_secret is not None:
-                self.token_id = None
-                self.token_secret = None
-                
-        if password is not None:
-            self.password = password
-            
-        if verify_ssl is not None:
-            self.verify_ssl = verify_ssl
-            
-        if port is not None:
-            self.port = port
-            
-        # Attempt to reconnect
-        try:
-            self.proxmox = self._connect()
-            # Try a simple API call to verify connection
-            self.proxmox.nodes.get()
-            print(f"Successfully reconnected to Proxmox API at {self.host}:{self.port}")
-            return True
-        except Exception as e:
-            print(f"Failed to reconnect to Proxmox API: {e}")
-            return False
